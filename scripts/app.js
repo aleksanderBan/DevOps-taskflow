@@ -2,6 +2,7 @@ class TaskFlow {
     constructor() {
         this.tasks = this.loadTasks();
         this.taskIdCounter = this.getNextTaskId();
+        this.currentCategoryFilter = 'all';
         this.initializeApp();
         this.bindEvents();
         this.renderTasks();
@@ -31,15 +32,22 @@ class TaskFlow {
             }
         });
 
+        // Category filter buttons
+        document.querySelectorAll('.category-filter-btn').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                this.setCategoryFilter(e.target.dataset.category);
+            });
+        });
+
         // Focus on input when page loads
         taskInput.focus();
     }
 
     addTask() {
         const taskInput = document.getElementById('taskInput');
-        const prioritySelect = document.getElementById('prioritySelect');
+        const categorySelect = document.getElementById('categorySelect');
         const taskText = taskInput.value.trim();
-        const priority = prioritySelect.value;
+        const category = categorySelect.value;
 
         if (taskText === '') {
             this.showNotification('Please enter a task description', 'warning');
@@ -50,7 +58,7 @@ class TaskFlow {
         const newTask = {
             id: this.taskIdCounter++,
             text: taskText,
-            priority: priority,
+            category: category,
             completed: false,
             createdAt: new Date().toISOString(),
             completedAt: null
@@ -62,7 +70,7 @@ class TaskFlow {
         this.updateStats();
 
         taskInput.value = '';
-        prioritySelect.value = 'medium';
+        categorySelect.value = 'personal';
         taskInput.focus();
 
         this.showNotification('Task added successfully!', 'success');
@@ -105,25 +113,57 @@ class TaskFlow {
         }
     }
 
-    getPriorityValue(priority) {
-        const priorities = { high: 3, medium: 2, low: 1 };
-        return priorities[priority] || 2;
+    setCategoryFilter(category) {
+        this.currentCategoryFilter = category;
+
+        // Update button states
+        document.querySelectorAll('.category-filter-btn').forEach(btn => {
+            btn.classList.remove('active');
+        });
+        document.querySelector(`[data-category="${category}"]`).classList.add('active');
+
+        this.renderTasks();
     }
 
-    getPriorityIcon(priority) {
+    matchesCategoryFilter(task) {
+        if (this.currentCategoryFilter === 'all') {
+            return true;
+        }
+        return task.category === this.currentCategoryFilter;
+    }
+
+    getFilteredTasks() {
+        return this.tasks.filter(task => this.matchesCategoryFilter(task));
+    }
+
+    getCategoryIcon(category) {
         const icons = {
-            high: '🔥',
-            medium: '⚡',
-            low: '📌'
+            work: '💼',
+            personal: '📝',
+            shopping: '🛒',
+            health: '🏥',
+            study: '📚'
         };
-        return icons[priority] || '⚡';
+        return icons[category] || '📝';
+    }
+
+    getCategoryColor(category) {
+        const colors = {
+            work: '#3182ce',
+            personal: '#38a169',
+            shopping: '#ed8936',
+            health: '#e53e3e',
+            study: '#805ad5'
+        };
+        return colors[category] || '#38a169';
     }
 
     renderTasks() {
         const tasksList = document.getElementById('tasksList');
         const emptyState = document.getElementById('emptyState');
+        const filteredTasks = this.getFilteredTasks();
 
-        if (this.tasks.length === 0) {
+        if (filteredTasks.length === 0) {
             tasksList.style.display = 'none';
             emptyState.style.display = 'block';
             return;
@@ -132,17 +172,16 @@ class TaskFlow {
         tasksList.style.display = 'flex';
         emptyState.style.display = 'none';
 
-        // Sort tasks: by priority (high to low), then by completion status, then by creation date
-        const sortedTasks = [...this.tasks].sort((a, b) => {
-            // First sort by completion status (incomplete first)
+        // Sort tasks: incomplete first, then by category, then by creation date
+        const sortedTasks = [...filteredTasks].sort((a, b) => {
+            // First sort by completion status
             if (a.completed !== b.completed) {
                 return a.completed - b.completed;
             }
 
-            // Then sort by priority (high to low)
-            const priorityDiff = this.getPriorityValue(b.priority) - this.getPriorityValue(a.priority);
-            if (priorityDiff !== 0) {
-                return priorityDiff;
+            // Then sort by category
+            if (a.category !== b.category) {
+                return a.category.localeCompare(b.category);
             }
 
             // Finally sort by creation date (newest first)
@@ -150,14 +189,14 @@ class TaskFlow {
         });
 
         tasksList.innerHTML = sortedTasks.map(task => `
-            <div class="task-item ${task.completed ? 'completed' : ''} priority-${task.priority}" data-task-id="${task.id}">
+            <div class="task-item ${task.completed ? 'completed' : ''} category-${task.category}" data-task-id="${task.id}">
                 <div class="task-content">
                     <div class="task-checkbox ${task.completed ? 'checked' : ''}"
                          onclick="taskFlow.toggleTask(${task.id})">
                     </div>
                     <span class="task-text">${this.escapeHtml(task.text)}</span>
-                    <span class="priority-badge priority-${task.priority}">
-                        ${this.getPriorityIcon(task.priority)} ${task.priority.charAt(0).toUpperCase() + task.priority.slice(1)}
+                    <span class="category-badge category-${task.category}" style="background-color: ${this.getCategoryColor(task.category)}">
+                        ${this.getCategoryIcon(task.category)} ${task.category.charAt(0).toUpperCase() + task.category.slice(1)}
                     </span>
                 </div>
                 <div class="task-actions">
@@ -176,16 +215,59 @@ class TaskFlow {
         const totalTasks = this.tasks.length;
         const completedTasks = this.tasks.filter(task => task.completed).length;
         const pendingTasks = totalTasks - completedTasks;
-        const highPriorityTasks = this.tasks.filter(task => task.priority === 'high' && !task.completed).length;
+        const categoriesUsed = new Set(this.tasks.map(task => task.category)).size;
 
         document.getElementById('totalTasks').textContent = totalTasks;
         document.getElementById('completedTasks').textContent = completedTasks;
         document.getElementById('pendingTasks').textContent = pendingTasks;
-        document.getElementById('highPriorityTasks').textContent = highPriorityTasks;
+        document.getElementById('categoriesUsed').textContent = categoriesUsed;
 
         // Update task count in header
         const taskCount = document.getElementById('taskCount');
         taskCount.textContent = `${totalTasks} ${totalTasks === 1 ? 'task' : 'tasks'}`;
+
+        // Update category statistics
+        this.updateCategoryStats();
+    }
+
+    updateCategoryStats() {
+        const categoryStats = document.getElementById('categoryStats');
+        const categories = ['work', 'personal', 'shopping', 'health', 'study'];
+
+        const categoryData = categories.map(category => {
+            const total = this.tasks.filter(task => task.category === category).length;
+            const completed = this.tasks.filter(task => task.category === category && task.completed).length;
+            const pending = total - completed;
+
+            return {
+                category,
+                total,
+                completed,
+                pending,
+                icon: this.getCategoryIcon(category),
+                color: this.getCategoryColor(category)
+            };
+        }).filter(data => data.total > 0);
+
+        categoryStats.innerHTML = categoryData.map(data => `
+            <div class="category-stat-item">
+                <div class="category-stat-header">
+                    <span class="category-icon">${data.icon}</span>
+                    <span class="category-name">${data.category.charAt(0).toUpperCase() + data.category.slice(1)}</span>
+                    <span class="category-total">${data.total}</span>
+                </div>
+                <div class="category-progress">
+                    <div class="progress-bar">
+                        <div class="progress-fill" style="width: ${data.total ? (data.completed / data.total) * 100 : 0}%; background-color: ${data.color}"></div>
+                    </div>
+                    <span class="progress-text">${data.completed}/${data.total} completed</span>
+                </div>
+            </div>
+        `).join('');
+
+        if (categoryData.length === 0) {
+            categoryStats.innerHTML = '<p class="no-categories">No tasks with categories yet.</p>';
+        }
     }
 
     saveTasks() {
@@ -203,10 +285,10 @@ class TaskFlow {
             const saved = localStorage.getItem('taskflow_tasks');
             const tasks = saved ? JSON.parse(saved) : [];
 
-            // Add default priority to existing tasks for backward compatibility
+            // Add default category to existing tasks for backward compatibility
             return tasks.map(task => ({
                 ...task,
-                priority: task.priority || 'medium'
+                category: task.category || 'personal'
             }));
         } catch (error) {
             console.error('Failed to load tasks:', error);
@@ -311,13 +393,22 @@ class TaskFlow {
 
     getTaskStats() {
         const now = new Date();
+        const categoryBreakdown = {};
+
+        ['work', 'personal', 'shopping', 'health', 'study'].forEach(category => {
+            categoryBreakdown[category] = {
+                total: this.tasks.filter(t => t.category === category).length,
+                completed: this.tasks.filter(t => t.category === category && t.completed).length,
+                pending: this.tasks.filter(t => t.category === category && !t.completed).length
+            };
+        });
+
         const stats = {
             total: this.tasks.length,
             completed: this.tasks.filter(t => t.completed).length,
             pending: this.tasks.filter(t => !t.completed).length,
-            highPriority: this.tasks.filter(t => t.priority === 'high' && !t.completed).length,
-            mediumPriority: this.tasks.filter(t => t.priority === 'medium' && !t.completed).length,
-            lowPriority: this.tasks.filter(t => t.priority === 'low' && !t.completed).length,
+            categoriesUsed: new Set(this.tasks.map(t => t.category)).size,
+            categoryBreakdown,
             createdToday: this.tasks.filter(t => {
                 const taskDate = new Date(t.createdAt);
                 return taskDate.toDateString() === now.toDateString();
