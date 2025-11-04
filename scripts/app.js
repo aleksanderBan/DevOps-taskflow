@@ -2,11 +2,12 @@ class TaskFlow {
     constructor() {
         this.tasks = this.loadTasks();
         this.taskIdCounter = this.getNextTaskId();
-        this.currentCategoryFilter = 'all';
+        this.currentFilter = 'all';
         this.initializeApp();
         this.bindEvents();
         this.renderTasks();
         this.updateStats();
+        this.setDefaultDueDate();
     }
 
     initializeApp() {
@@ -18,6 +19,14 @@ class TaskFlow {
         if (this.tasks.length === 0) {
             console.log('Welcome to TaskFlow! Add your first task to get started.');
         }
+    }
+
+    setDefaultDueDate() {
+        // Set default due date to tomorrow
+        const tomorrow = new Date();
+        tomorrow.setDate(tomorrow.getDate() + 1);
+        const dueDateInput = document.getElementById('dueDateInput');
+        dueDateInput.value = tomorrow.toISOString().split('T')[0];
     }
 
     bindEvents() {
@@ -32,10 +41,10 @@ class TaskFlow {
             }
         });
 
-        // Category filter buttons
-        document.querySelectorAll('.category-filter-btn').forEach(btn => {
+        // Due date filter buttons
+        document.querySelectorAll('.due-date-filter-btn').forEach(btn => {
             btn.addEventListener('click', (e) => {
-                this.setCategoryFilter(e.target.dataset.category);
+                this.setDueDateFilter(e.target.dataset.filter);
             });
         });
 
@@ -45,9 +54,9 @@ class TaskFlow {
 
     addTask() {
         const taskInput = document.getElementById('taskInput');
-        const categorySelect = document.getElementById('categorySelect');
+        const dueDateInput = document.getElementById('dueDateInput');
         const taskText = taskInput.value.trim();
-        const category = categorySelect.value;
+        const dueDate = dueDateInput.value;
 
         if (taskText === '') {
             this.showNotification('Please enter a task description', 'warning');
@@ -58,7 +67,7 @@ class TaskFlow {
         const newTask = {
             id: this.taskIdCounter++,
             text: taskText,
-            category: category,
+            dueDate: dueDate || null,
             completed: false,
             createdAt: new Date().toISOString(),
             completedAt: null
@@ -70,7 +79,7 @@ class TaskFlow {
         this.updateStats();
 
         taskInput.value = '';
-        categorySelect.value = 'personal';
+        this.setDefaultDueDate();
         taskInput.focus();
 
         this.showNotification('Task added successfully!', 'success');
@@ -113,49 +122,74 @@ class TaskFlow {
         }
     }
 
-    setCategoryFilter(category) {
-        this.currentCategoryFilter = category;
+    setDueDateFilter(filter) {
+        this.currentFilter = filter;
 
         // Update button states
-        document.querySelectorAll('.category-filter-btn').forEach(btn => {
+        document.querySelectorAll('.due-date-filter-btn').forEach(btn => {
             btn.classList.remove('active');
         });
-        document.querySelector(`[data-category="${category}"]`).classList.add('active');
+        document.querySelector(`[data-filter="${filter}"]`).classList.add('active');
 
         this.renderTasks();
     }
 
-    matchesCategoryFilter(task) {
-        if (this.currentCategoryFilter === 'all') {
-            return true;
+    matchesDueDateFilter(task) {
+        const today = new Date().toISOString().split('T')[0];
+
+        switch (this.currentFilter) {
+            case 'all':
+                return true;
+            case 'due-today':
+                return task.dueDate === today;
+            case 'overdue':
+                return task.dueDate && task.dueDate < today && !task.completed;
+            case 'no-due-date':
+                return !task.dueDate;
+            default:
+                return true;
         }
-        return task.category === this.currentCategoryFilter;
     }
 
     getFilteredTasks() {
-        return this.tasks.filter(task => this.matchesCategoryFilter(task));
+        return this.tasks.filter(task => this.matchesDueDateFilter(task));
     }
 
-    getCategoryIcon(category) {
-        const icons = {
-            work: '💼',
-            personal: '📝',
-            shopping: '🛒',
-            health: '🏥',
-            study: '📚'
-        };
-        return icons[category] || '📝';
+    isOverdue(task) {
+        if (!task.dueDate || task.completed) return false;
+        const today = new Date().toISOString().split('T')[0];
+        return task.dueDate < today;
     }
 
-    getCategoryColor(category) {
-        const colors = {
-            work: '#3182ce',
-            personal: '#38a169',
-            shopping: '#ed8936',
-            health: '#e53e3e',
-            study: '#805ad5'
-        };
-        return colors[category] || '#38a169';
+    isDueToday(task) {
+        if (!task.dueDate) return false;
+        const today = new Date().toISOString().split('T')[0];
+        return task.dueDate === today;
+    }
+
+    formatDueDate(dateString) {
+        if (!dateString) return '';
+
+        const date = new Date(dateString);
+        const today = new Date();
+        const tomorrow = new Date(today);
+        tomorrow.setDate(tomorrow.getDate() + 1);
+
+        const taskDate = date.toDateString();
+        const todayString = today.toDateString();
+        const tomorrowString = tomorrow.toDateString();
+
+        if (taskDate === todayString) {
+            return 'Today';
+        } else if (taskDate === tomorrowString) {
+            return 'Tomorrow';
+        } else {
+            return date.toLocaleDateString('en-US', {
+                month: 'short',
+                day: 'numeric',
+                year: date.getFullYear() !== today.getFullYear() ? 'numeric' : undefined
+            });
+        }
     }
 
     renderTasks() {
@@ -172,102 +206,105 @@ class TaskFlow {
         tasksList.style.display = 'flex';
         emptyState.style.display = 'none';
 
-        // Sort tasks: incomplete first, then by category, then by creation date
+        // Sort tasks: incomplete first, then by due date, then by creation date
         const sortedTasks = [...filteredTasks].sort((a, b) => {
             // First sort by completion status
             if (a.completed !== b.completed) {
                 return a.completed - b.completed;
             }
 
-            // Then sort by category
-            if (a.category !== b.category) {
-                return a.category.localeCompare(b.category);
+            // Then sort by due date (overdue first, then by date)
+            if (a.dueDate && b.dueDate) {
+                return new Date(a.dueDate) - new Date(b.dueDate);
+            } else if (a.dueDate) {
+                return -1;
+            } else if (b.dueDate) {
+                return 1;
             }
 
             // Finally sort by creation date (newest first)
             return new Date(b.createdAt) - new Date(a.createdAt);
         });
 
-        tasksList.innerHTML = sortedTasks.map(task => `
-            <div class="task-item ${task.completed ? 'completed' : ''} category-${task.category}" data-task-id="${task.id}">
-                <div class="task-content">
-                    <div class="task-checkbox ${task.completed ? 'checked' : ''}"
-                         onclick="taskFlow.toggleTask(${task.id})">
+        tasksList.innerHTML = sortedTasks.map(task => {
+            const isOverdue = this.isOverdue(task);
+            const isDueToday = this.isDueToday(task);
+            const dueDateText = this.formatDueDate(task.dueDate);
+
+            return `
+                <div class="task-item ${task.completed ? 'completed' : ''} ${isOverdue ? 'overdue' : ''} ${isDueToday ? 'due-today' : ''}" data-task-id="${task.id}">
+                    <div class="task-content">
+                        <div class="task-checkbox ${task.completed ? 'checked' : ''}"
+                             onclick="taskFlow.toggleTask(${task.id})">
+                        </div>
+                        <span class="task-text">${this.escapeHtml(task.text)}</span>
+                        ${task.dueDate ? `
+                            <span class="due-date-badge ${isOverdue ? 'overdue' : ''} ${isDueToday ? 'due-today' : ''}">
+                                📅 ${dueDateText}
+                            </span>
+                        ` : ''}
                     </div>
-                    <span class="task-text">${this.escapeHtml(task.text)}</span>
-                    <span class="category-badge category-${task.category}" style="background-color: ${this.getCategoryColor(task.category)}">
-                        ${this.getCategoryIcon(task.category)} ${task.category.charAt(0).toUpperCase() + task.category.slice(1)}
-                    </span>
+                    <div class="task-actions">
+                        <button class="task-btn edit-btn" onclick="taskFlow.editTask(${task.id})" title="Edit task">
+                            ✏️
+                        </button>
+                        <button class="task-btn delete-btn" onclick="taskFlow.deleteTask(${task.id})" title="Delete task">
+                            🗑️
+                        </button>
+                    </div>
                 </div>
-                <div class="task-actions">
-                    <button class="task-btn edit-btn" onclick="taskFlow.editTask(${task.id})" title="Edit task">
-                        ✏️
-                    </button>
-                    <button class="task-btn delete-btn" onclick="taskFlow.deleteTask(${task.id})" title="Delete task">
-                        🗑️
-                    </button>
-                </div>
-            </div>
-        `).join('');
+            `;
+        }).join('');
     }
 
     updateStats() {
         const totalTasks = this.tasks.length;
         const completedTasks = this.tasks.filter(task => task.completed).length;
         const pendingTasks = totalTasks - completedTasks;
-        const categoriesUsed = new Set(this.tasks.map(task => task.category)).size;
+        const overdueTasks = this.tasks.filter(task => this.isOverdue(task)).length;
 
         document.getElementById('totalTasks').textContent = totalTasks;
         document.getElementById('completedTasks').textContent = completedTasks;
         document.getElementById('pendingTasks').textContent = pendingTasks;
-        document.getElementById('categoriesUsed').textContent = categoriesUsed;
+        document.getElementById('overdueTasks').textContent = overdueTasks;
 
         // Update task count in header
         const taskCount = document.getElementById('taskCount');
         taskCount.textContent = `${totalTasks} ${totalTasks === 1 ? 'task' : 'tasks'}`;
 
-        // Update category statistics
-        this.updateCategoryStats();
+        // Update due date statistics
+        this.updateDueDateStats();
     }
 
-    updateCategoryStats() {
-        const categoryStats = document.getElementById('categoryStats');
-        const categories = ['work', 'personal', 'shopping', 'health', 'study'];
+    updateDueDateStats() {
+        const dueDateStats = document.getElementById('dueDateStats');
+        const today = new Date().toISOString().split('T')[0];
 
-        const categoryData = categories.map(category => {
-            const total = this.tasks.filter(task => task.category === category).length;
-            const completed = this.tasks.filter(task => task.category === category && task.completed).length;
-            const pending = total - completed;
+        const stats = {
+            dueToday: this.tasks.filter(task => task.dueDate === today && !task.completed).length,
+            overdue: this.tasks.filter(task => this.isOverdue(task)).length,
+            upcoming: this.tasks.filter(task => task.dueDate && task.dueDate > today && !task.completed).length,
+            noDueDate: this.tasks.filter(task => !task.dueDate && !task.completed).length
+        };
 
-            return {
-                category,
-                total,
-                completed,
-                pending,
-                icon: this.getCategoryIcon(category),
-                color: this.getCategoryColor(category)
-            };
-        }).filter(data => data.total > 0);
-
-        categoryStats.innerHTML = categoryData.map(data => `
-            <div class="category-stat-item">
-                <div class="category-stat-header">
-                    <span class="category-icon">${data.icon}</span>
-                    <span class="category-name">${data.category.charAt(0).toUpperCase() + data.category.slice(1)}</span>
-                    <span class="category-total">${data.total}</span>
-                </div>
-                <div class="category-progress">
-                    <div class="progress-bar">
-                        <div class="progress-fill" style="width: ${data.total ? (data.completed / data.total) * 100 : 0}%; background-color: ${data.color}"></div>
-                    </div>
-                    <span class="progress-text">${data.completed}/${data.total} completed</span>
-                </div>
+        dueDateStats.innerHTML = `
+            <div class="stat-item">
+                <span class="stat-icon">📅</span>
+                <span class="stat-text">Due Today: ${stats.dueToday}</span>
             </div>
-        `).join('');
-
-        if (categoryData.length === 0) {
-            categoryStats.innerHTML = '<p class="no-categories">No tasks with categories yet.</p>';
-        }
+            <div class="stat-item">
+                <span class="stat-icon">⚠️</span>
+                <span class="stat-text">Overdue: ${stats.overdue}</span>
+            </div>
+            <div class="stat-item">
+                <span class="stat-icon">📋</span>
+                <span class="stat-text">Upcoming: ${stats.upcoming}</span>
+            </div>
+            <div class="stat-item">
+                <span class="stat-icon">📝</span>
+                <span class="stat-text">No Due Date: ${stats.noDueDate}</span>
+            </div>
+        `;
     }
 
     saveTasks() {
@@ -285,10 +322,10 @@ class TaskFlow {
             const saved = localStorage.getItem('taskflow_tasks');
             const tasks = saved ? JSON.parse(saved) : [];
 
-            // Add default category to existing tasks for backward compatibility
+            // Add default due date to existing tasks for backward compatibility
             return tasks.map(task => ({
                 ...task,
-                category: task.category || 'personal'
+                dueDate: task.dueDate || null
             }));
         } catch (error) {
             console.error('Failed to load tasks:', error);
@@ -393,22 +430,15 @@ class TaskFlow {
 
     getTaskStats() {
         const now = new Date();
-        const categoryBreakdown = {};
-
-        ['work', 'personal', 'shopping', 'health', 'study'].forEach(category => {
-            categoryBreakdown[category] = {
-                total: this.tasks.filter(t => t.category === category).length,
-                completed: this.tasks.filter(t => t.category === category && t.completed).length,
-                pending: this.tasks.filter(t => t.category === category && !t.completed).length
-            };
-        });
+        const today = now.toISOString().split('T')[0];
 
         const stats = {
             total: this.tasks.length,
             completed: this.tasks.filter(t => t.completed).length,
             pending: this.tasks.filter(t => !t.completed).length,
-            categoriesUsed: new Set(this.tasks.map(t => t.category)).size,
-            categoryBreakdown,
+            dueToday: this.tasks.filter(t => t.dueDate === today && !t.completed).length,
+            overdue: this.tasks.filter(t => this.isOverdue(t)).length,
+            upcoming: this.tasks.filter(t => t.dueDate && t.dueDate > today && !t.completed).length,
             createdToday: this.tasks.filter(t => {
                 const taskDate = new Date(t.createdAt);
                 return taskDate.toDateString() === now.toDateString();
