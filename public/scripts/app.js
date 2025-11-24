@@ -1,7 +1,7 @@
 class TaskFlow {
     constructor() {
-        this.tasks = this.loadTasks();
-        this.taskIdCounter = this.getNextTaskId();
+        this.tasks = [];  // Initialize empty, will load async
+        this.taskIdCounter = 1;
 
         // Filter and search state
         this.currentFilter = 'all';
@@ -20,102 +20,43 @@ class TaskFlow {
 
         this.initializeApp();
         this.bindEvents();
+
+        // Load tasks asynchronously
+        this.initializeData();
+    }
+
+    async initializeData() {
+        this.tasks = await this.loadTasks();
         this.renderTasks();
         this.updateStats();
     }
 
-    initializeApp() {
-        console.log('TaskFlow Complete System initialized!');
-        this.showWelcomeMessage();
-        this.setDefaultDate();
-    }
-
-    showWelcomeMessage() {
-        if (this.tasks.length === 0) {
-            console.log('Welcome to TaskFlow! Complete task management with priorities, categories, due dates, and search.');
+    // Updated loadTasks (API)
+    async loadTasks() {
+        try {
+            const response = await fetch('/api/tasks');
+            const tasks = await response.json();
+            return tasks.map(task => ({
+                ...task,
+                text: task.title, // Map API's 'title' to frontend's 'text'
+                priority: task.priority || 'medium',
+                category: task.category || 'personal',
+                dueDate: task.dueDate || null
+            }));
+        } catch (error) {
+            console.error('Failed to load tasks:', error);
+            return [];
         }
     }
 
-    setDefaultDate() {
-        // Set default due date to tomorrow
-        const tomorrow = new Date();
-        tomorrow.setDate(tomorrow.getDate() + 1);
-        document.getElementById('dueDateInput').value = tomorrow.toISOString().split('T')[0];
+    // Updated saveTasks (no-op for API)
+    saveTasks() {
+        // This method is no longer needed as we save through the API
+        // But we keep it to avoid breaking code that calls it
     }
 
-    bindEvents() {
-        const addTaskBtn = document.getElementById('addTaskBtn');
-        const taskInput = document.getElementById('taskInput');
-        const searchInput = document.getElementById('searchInput');
-        const clearSearch = document.getElementById('clearSearch');
-        const filterButtons = document.querySelectorAll('.filter-btn');
-        const categoryFilterButtons = document.querySelectorAll('.category-filter-btn');
-        const sortSelect = document.getElementById('sortSelect');
-        const toggleAdvanced = document.getElementById('toggleAdvanced');
-        const clearAllFilters = document.getElementById('clearAllFilters');
-
-        // Task input events
-        addTaskBtn.addEventListener('click', () => this.addTask());
-        taskInput.addEventListener('keypress', (e) => {
-            if (e.key === 'Enter') {
-                this.addTask();
-            }
-        });
-
-        // Search functionality
-        searchInput.addEventListener('input', (e) => {
-            this.currentSearch = e.target.value.toLowerCase();
-            clearSearch.style.display = this.currentSearch ? 'block' : 'none';
-            this.renderTasks();
-            this.updateSearchResults();
-        });
-
-        clearSearch.addEventListener('click', () => {
-            searchInput.value = '';
-            this.currentSearch = '';
-            clearSearch.style.display = 'none';
-            this.renderTasks();
-            this.updateSearchResults();
-        });
-
-        // Quick filter buttons
-        filterButtons.forEach(button => {
-            button.addEventListener('click', (e) => {
-                const filter = e.currentTarget.dataset.filter;
-                this.setFilter(filter);
-            });
-        });
-
-        // Category filter buttons
-        categoryFilterButtons.forEach(button => {
-            button.addEventListener('click', (e) => {
-                const category = e.currentTarget.dataset.category;
-                this.setCategoryFilter(category);
-            });
-        });
-
-        // Sort selection
-        sortSelect.addEventListener('change', (e) => {
-            this.currentSort = e.target.value;
-            this.renderTasks();
-        });
-
-        // Advanced filters toggle
-        toggleAdvanced.addEventListener('click', () => {
-            this.toggleAdvancedFilters();
-        });
-
-        // Clear all filters
-        clearAllFilters.addEventListener('click', () => {
-            this.clearAllFilters();
-        });
-
-        // Focus on input when page loads
-        taskInput.focus();
-    }
-
-    // Task Management Methods
-    addTask() {
+    // Updated addTask
+    async addTask() {
         const taskInput = document.getElementById('taskInput');
         const prioritySelect = document.getElementById('prioritySelect');
         const categorySelect = document.getElementById('categorySelect');
@@ -132,19 +73,32 @@ class TaskFlow {
             return;
         }
 
-        const newTask = {
-            id: this.taskIdCounter++,
-            text: taskText,
-            priority: priority,
-            category: category,
-            dueDate: dueDate || null,
-            completed: false,
-            createdAt: new Date().toISOString(),
-            completedAt: null
-        };
+        try {
+            const response = await fetch('/api/tasks', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    title: taskText, // API expects 'title'
+                    priority: priority,
+                    category: category,
+                    dueDate: dueDate || null
+                })
+            });
+            const savedTask = await response.json();
 
-        this.tasks.push(newTask);
-        this.saveTasks();
+            // Map the saved task to frontend format
+            const newTask = {
+                ...savedTask,
+                text: savedTask.title
+            };
+
+            this.tasks.push(newTask);
+        } catch (error) {
+            console.error('Error adding task:', error);
+            this.showNotification('Failed to add task!', 'error');
+            return;
+        }
+
         this.renderTasks();
         this.updateStats();
         this.updateSearchResults();
@@ -155,74 +109,183 @@ class TaskFlow {
         categorySelect.value = 'personal';
         this.setDefaultDate();
         taskInput.focus();
-
-        this.showNotification('Task added successfully!', 'success');
     }
 
-    deleteTask(taskId) {
+    // Updated deleteTask
+    async deleteTask(taskId) {
         if (confirm('Are you sure you want to delete this task?')) {
-            this.tasks = this.tasks.filter(task => task.id !== taskId);
-            this.saveTasks();
-            this.renderTasks();
-            this.updateStats();
-            this.updateSearchResults();
-            this.showNotification('Task deleted successfully!', 'success');
-        }
-    }
-
-    toggleTask(taskId) {
-        const task = this.tasks.find(task => task.id === taskId);
-        if (task) {
-            task.completed = !task.completed;
-            task.completedAt = task.completed ? new Date().toISOString() : null;
-            this.saveTasks();
-            this.renderTasks();
-            this.updateStats();
-            this.updateSearchResults();
-
-            const message = task.completed ? 'Task completed! 🎉' : 'Task marked as pending';
-            this.showNotification(message, 'success');
-        }
-    }
-
-    editTask(taskId) {
-        const task = this.tasks.find(task => task.id === taskId);
-        if (task) {
-            const newText = prompt('Edit task:', task.text);
-            if (newText !== null && newText.trim() !== '') {
-                task.text = newText.trim();
-                this.saveTasks();
+            try {
+                await fetch(`/api/tasks/${taskId}`, { method: 'DELETE' });
+                this.tasks = this.tasks.filter(task => task.id !== taskId);
                 this.renderTasks();
                 this.updateStats();
                 this.updateSearchResults();
-                this.showNotification('Task updated successfully!', 'success');
+                this.showNotification('Task deleted successfully!', 'success');
+            } catch (error) {
+                console.error('Error deleting task:', error);
+                this.showNotification('Failed to delete task!', 'error');
             }
         }
     }
 
-    // Filtering Methods
+    // Updated toggleTask
+    async toggleTask(taskId) {
+        const task = this.tasks.find(task => task.id === taskId);
+        if (task) {
+            const updatedTask = {
+                ...task,
+                title: task.text, // Map 'text' to 'title' for API
+                completed: !task.completed,
+                completedAt: !task.completed ? new Date().toISOString() : null
+            };
+
+            try {
+                await fetch(`/api/tasks/${taskId}`, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(updatedTask)
+                });
+
+                task.completed = updatedTask.completed;
+                task.completedAt = updatedTask.completedAt;
+                this.renderTasks();
+                this.updateStats();
+                this.updateSearchResults();
+
+                const message = task.completed ? 'Task completed! 🎉' : 'Task marked as pending';
+                this.showNotification(message, 'success');
+            } catch (error) {
+                console.error('Error toggling task:', error);
+                this.showNotification('Failed to update task!', 'error');
+            }
+        }
+    }
+
+    // Updated editTask
+    async editTask(taskId) {
+        const task = this.tasks.find(task => task.id === taskId);
+        if (task) {
+            const newText = prompt('Edit task:', task.text);
+            if (newText !== null && newText.trim() !== '') {
+                const updatedTask = {
+                    ...task,
+                    title: newText.trim(), // Map to 'title' for API
+                    text: newText.trim()
+                };
+
+                try {
+                    await fetch(`/api/tasks/${taskId}`, {
+                        method: 'PUT',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(updatedTask)
+                    });
+
+                    task.text = newText.trim();
+                    this.renderTasks();
+                    this.updateStats();
+                    this.updateSearchResults();
+                    this.showNotification('Task updated successfully!', 'success');
+                } catch (error) {
+                    console.error('Error updating task:', error);
+                    this.showNotification('Failed to update task!', 'error');
+                }
+            }
+        }
+    }
+
+    initializeApp() {
+        console.log('TaskFlow Complete System initialized!');
+        this.showWelcomeMessage();
+        this.setDefaultDate();
+    }
+
+    showWelcomeMessage() {
+        if (this.tasks.length === 0) {
+            console.log('Welcome to TaskFlow! Complete task management with priorities, categories, due dates, and search.');
+        }
+    }
+
+    setDefaultDate() {
+        const tomorrow = new Date();
+        tomorrow.setDate(tomorrow.getDate() + 1);
+        document.getElementById('dueDateInput').value = tomorrow.toISOString().split('T')[0];
+    }
+
+    bindEvents() {
+        const addTaskBtn = document.getElementById('addTaskBtn');
+        const taskInput = document.getElementById('taskInput');
+        const searchInput = document.getElementById('searchInput');
+        const clearSearch = document.getElementById('clearSearch');
+        const filterButtons = document.querySelectorAll('.filter-btn');
+        const categoryFilterButtons = document.querySelectorAll('.category-filter-btn');
+        const sortSelect = document.getElementById('sortSelect');
+        const toggleAdvanced = document.getElementById('toggleAdvanced');
+        const clearAllFilters = document.getElementById('clearAllFilters');
+
+        addTaskBtn.addEventListener('click', () => this.addTask());
+        taskInput.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') {
+                this.addTask();
+            }
+        });
+
+        searchInput.addEventListener('input', (e) => {
+            this.currentSearch = e.target.value.toLowerCase();
+            clearSearch.style.display = this.currentSearch ? 'block' : 'none';
+            this.renderTasks();
+            this.updateSearchResults();
+        });
+
+        clearSearch.addEventListener('click', () => {
+            searchInput.value = '';
+            this.currentSearch = '';
+            clearSearch.style.display = 'none';
+            this.renderTasks();
+            this.updateSearchResults();
+        });
+
+        filterButtons.forEach(button => {
+            button.addEventListener('click', (e) => {
+                const filter = e.currentTarget.dataset.filter;
+                this.setFilter(filter);
+            });
+        });
+
+        categoryFilterButtons.forEach(button => {
+            button.addEventListener('click', (e) => {
+                const category = e.currentTarget.dataset.category;
+                this.setCategoryFilter(category);
+            });
+        });
+
+        sortSelect.addEventListener('change', (e) => {
+            this.currentSort = e.target.value;
+            this.renderTasks();
+        });
+
+        toggleAdvanced.addEventListener('click', () => {
+            this.toggleAdvancedFilters();
+        });
+
+        clearAllFilters.addEventListener('click', () => {
+            this.clearAllFilters();
+        });
+
+        taskInput.focus();
+    }
+
     setFilter(filter) {
         this.currentFilter = filter;
-
-        // Update button states
-        document.querySelectorAll('.filter-btn').forEach(btn => {
-            btn.classList.remove('active');
-        });
+        document.querySelectorAll('.filter-btn').forEach(btn => btn.classList.remove('active'));
         document.querySelector(`[data-filter="${filter}"]`).classList.add('active');
-
         this.renderTasks();
         this.updateSearchResults();
     }
 
     setCategoryFilter(category) {
         this.currentCategoryFilter = category;
-
-        // Update button states
-        document.querySelectorAll('.category-filter-btn').forEach(btn => {
-            btn.classList.remove('active');
-        });
+        document.querySelectorAll('.category-filter-btn').forEach(btn => btn.classList.remove('active'));
         document.querySelector(`[data-category="${category}"]`).classList.add('active');
-
         this.renderTasks();
         this.updateSearchResults();
     }
@@ -241,18 +304,15 @@ class TaskFlow {
     }
 
     clearAllFilters() {
-        // Reset all filters
         this.currentFilter = 'all';
         this.currentCategoryFilter = 'all';
         this.currentSearch = '';
         this.currentSort = 'priority';
 
-        // Reset UI
         document.getElementById('searchInput').value = '';
         document.getElementById('clearSearch').style.display = 'none';
         document.getElementById('sortSelect').value = 'priority';
 
-        // Reset button states
         document.querySelectorAll('.filter-btn').forEach(btn => btn.classList.remove('active'));
         document.querySelector('[data-filter="all"]').classList.add('active');
 
@@ -264,7 +324,6 @@ class TaskFlow {
         this.showNotification('All filters cleared!', 'info');
     }
 
-    // Utility Methods for Task Analysis
     getPriorityValue(priority) {
         const values = { high: 3, medium: 2, low: 1 };
         return values[priority] || 2;
@@ -295,20 +354,13 @@ class TaskFlow {
 
     matchesFilter(task) {
         switch (this.currentFilter) {
-            case 'all':
-                return true;
-            case 'completed':
-                return task.completed;
-            case 'pending':
-                return !task.completed;
-            case 'high-priority':
-                return task.priority === 'high' && !task.completed;
-            case 'due-today':
-                return this.isDueToday(task) && !task.completed;
-            case 'overdue':
-                return this.isOverdue(task);
-            default:
-                return true;
+            case 'all': return true;
+            case 'completed': return task.completed;
+            case 'pending': return !task.completed;
+            case 'high-priority': return task.priority === 'high' && !task.completed;
+            case 'due-today': return this.isDueToday(task) && !task.completed;
+            case 'overdue': return this.isOverdue(task);
+            default: return true;
         }
     }
 
@@ -331,85 +383,57 @@ class TaskFlow {
         switch (this.currentSort) {
             case 'priority':
                 return tasksCopy.sort((a, b) => {
-                    if (a.completed !== b.completed) {
-                        return a.completed - b.completed;
-                    }
+                    if (a.completed !== b.completed) return a.completed - b.completed;
                     return this.getPriorityValue(b.priority) - this.getPriorityValue(a.priority);
                 });
-
             case 'due-date':
                 return tasksCopy.sort((a, b) => {
-                    if (a.completed !== b.completed) {
-                        return a.completed - b.completed;
-                    }
+                    if (a.completed !== b.completed) return a.completed - b.completed;
                     if (!a.dueDate && !b.dueDate) return 0;
                     if (!a.dueDate) return 1;
                     if (!b.dueDate) return -1;
                     return new Date(a.dueDate) - new Date(b.dueDate);
                 });
-
             case 'created-desc':
                 return tasksCopy.sort((a, b) => {
-                    if (a.completed !== b.completed) {
-                        return a.completed - b.completed;
-                    }
+                    if (a.completed !== b.completed) return a.completed - b.completed;
                     return new Date(b.createdAt) - new Date(a.createdAt);
                 });
-
             case 'created-asc':
                 return tasksCopy.sort((a, b) => {
-                    if (a.completed !== b.completed) {
-                        return a.completed - b.completed;
-                    }
+                    if (a.completed !== b.completed) return a.completed - b.completed;
                     return new Date(a.createdAt) - new Date(b.createdAt);
                 });
-
             case 'alphabetical':
                 return tasksCopy.sort((a, b) => {
-                    if (a.completed !== b.completed) {
-                        return a.completed - b.completed;
-                    }
+                    if (a.completed !== b.completed) return a.completed - b.completed;
                     return a.text.toLowerCase().localeCompare(b.text.toLowerCase());
                 });
-
             default:
                 return tasksCopy;
         }
     }
 
-    // Rendering Methods
     highlightSearchTerm(text) {
         if (!this.currentSearch) return this.escapeHtml(text);
-
         const escapedText = this.escapeHtml(text);
         const searchTerm = this.escapeHtml(this.currentSearch);
         const regex = new RegExp(`(${searchTerm})`, 'gi');
-
         return escapedText.replace(regex, '<mark class="search-highlight">$1</mark>');
     }
 
     getDueDateDisplay(task) {
-        if (!task.dueDate) {
-            return '📋 No due date';
-        }
-
+        if (!task.dueDate) return '📋 No due date';
         const today = new Date();
         const dueDate = new Date(task.dueDate);
         const diffTime = dueDate - today;
         const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
 
-        if (this.isOverdue(task)) {
-            const overdueDays = Math.abs(diffDays);
-            return `⚠️ ${overdueDays} day${overdueDays === 1 ? '' : 's'} overdue`;
-        } else if (this.isDueToday(task)) {
-            return '🔥 Due today';
-        } else if (diffDays === 1) {
-            return '⏰ Due tomorrow';
-        } else if (diffDays <= 7) {
-            return `📅 Due in ${diffDays} day${diffDays === 1 ? '' : 's'}`;
-        } else {
-            return `📅 Due ${this.formatDate(task.dueDate)}`;
-        }
+        if (this.isOverdue(task)) return `⚠️ ${Math.abs(diffDays)} day${Math.abs(diffDays) === 1 ? '' : 's'} overdue`;
+        if (this.isDueToday(task)) return '🔥 Due today';
+        if (diffDays === 1) return '⏰ Due tomorrow';
+        if (diffDays <= 7) return `📅 Due in ${diffDays} day${diffDays === 1 ? '' : 's'}`;
+        return `📅 Due ${this.formatDate(task.dueDate)}`;
     }
 
     getPriorityIcon(priority) {
@@ -528,7 +552,6 @@ class TaskFlow {
         });
     }
 
-    // Statistics Methods
     updateStats() {
         const totalTasks = this.tasks.length;
         const completedTasks = this.tasks.filter(task => task.completed).length;
@@ -544,7 +567,6 @@ class TaskFlow {
         document.getElementById('overdueTasks').textContent = overdueTasks;
         document.getElementById('categoriesUsed').textContent = usedCategories.size;
 
-        // Update task count in header
         const filteredTasks = this.getFilteredTasks();
         const taskCount = document.getElementById('taskCount');
         taskCount.textContent = `${filteredTasks.length} of ${totalTasks} ${totalTasks === 1 ? 'task' : 'tasks'}`;
@@ -557,12 +579,10 @@ class TaskFlow {
         const categoryStats = document.getElementById('categoryStats');
         const categoryBreakdown = {};
 
-        // Initialize all categories
         Object.keys(this.categories).forEach(cat => {
             categoryBreakdown[cat] = { total: 0, completed: 0 };
         });
 
-        // Count tasks by category
         this.tasks.forEach(task => {
             if (categoryBreakdown[task.category]) {
                 categoryBreakdown[task.category].total++;
@@ -635,45 +655,6 @@ class TaskFlow {
         dueDateStats.innerHTML = statsHTML || '<p class="no-stats">All tasks have optimal due dates!</p>';
     }
 
-    // Storage Methods
-    saveTasks() {
-        try {
-            localStorage.setItem('taskflow_tasks', JSON.stringify(this.tasks));
-            localStorage.setItem('taskflow_counter', this.taskIdCounter.toString());
-        } catch (error) {
-            console.error('Failed to save tasks:', error);
-            this.showNotification('Failed to save tasks. Please check your browser storage.', 'error');
-        }
-    }
-
-    loadTasks() {
-        try {
-            const saved = localStorage.getItem('taskflow_tasks');
-            const tasks = saved ? JSON.parse(saved) : [];
-            // Ensure all tasks have all required properties (for backward compatibility)
-            return tasks.map(task => ({
-                ...task,
-                priority: task.priority || 'medium',
-                category: task.category || 'personal',
-                dueDate: task.dueDate || null
-            }));
-        } catch (error) {
-            console.error('Failed to load tasks:', error);
-            return [];
-        }
-    }
-
-    getNextTaskId() {
-        try {
-            const saved = localStorage.getItem('taskflow_counter');
-            return saved ? parseInt(saved) : 1;
-        } catch (error) {
-            console.error('Failed to load task counter:', error);
-            return 1;
-        }
-    }
-
-    // Utility Methods
     escapeHtml(unsafe) {
         return unsafe
             .replace(/&/g, "&amp;")
@@ -731,7 +712,6 @@ class TaskFlow {
         }, 3000);
     }
 
-    // Export/Import Methods (bonus features)
     exportTasks() {
         const dataStr = JSON.stringify(this.tasks, null, 2);
         const dataBlob = new Blob([dataStr], {type: 'application/json'});
@@ -749,7 +729,6 @@ class TaskFlow {
     clearAllTasks() {
         if (confirm('Are you sure you want to delete ALL tasks? This cannot be undone.')) {
             this.tasks = [];
-            this.saveTasks();
             this.renderTasks();
             this.updateStats();
             this.updateSearchResults();
@@ -758,12 +737,10 @@ class TaskFlow {
     }
 }
 
-// Initialize the app when DOM is loaded
 document.addEventListener('DOMContentLoaded', () => {
     window.taskFlow = new TaskFlow();
 });
 
-// Export for potential testing
 if (typeof module !== 'undefined' && module.exports) {
     module.exports = TaskFlow;
 }
